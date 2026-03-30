@@ -1,0 +1,7 @@
+issue_type,affected_rows,status,detail
+mixed_date_formats,1000,reviewed,403 rows used dd-mm-yyyy and 597 rows used mm/dd/yyyy; the pipeline parses both formats explicitly.
+missing_transaction_type,107,handled,Missing payment values are retained as Unknown and flagged for transparency.
+transaction_amount_validation,0,validated,Validated whether transaction_amount equals item_price multiplied by quantity.
+duplicate_order_id_check,0,validated,Checked whether order_id values repeat across the source file.
+received_by_field_limitation,1000,documented,"received_by contains only honorific labels ['Mr.', 'Mrs.']; it is treated as a category label, not a true employee identifier."
+unparsed_dates,0,validated,Any rows listed here could not be parsed into a valid calendar date.

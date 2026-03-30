@@ -1,0 +1,4 @@
+payment_type,orders,quantity_sold,revenue,order_share_pct,average_order_value
+Cash,476,3943,132840,47.6,279.08
+Online,417,3291,110595,41.7,265.22
+Unknown,107,928,31795,10.7,297.15

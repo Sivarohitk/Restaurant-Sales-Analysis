@@ -1,0 +1,11 @@
+item_type,time_of_sale,orders,quantity_sold,revenue,average_order_value
+Beverages,Morning,57,493,16630,291.75
+Beverages,Afternoon,75,662,21605,288.07
+Beverages,Evening,62,518,16475,265.73
+Beverages,Night,66,526,17635,267.2
+Beverages,Midnight,54,440,14045,260.09
+Fastfood,Morning,133,1081,37100,278.95
+Fastfood,Afternoon,130,1052,34740,267.23
+Fastfood,Evening,139,1022,35880,258.13
+Fastfood,Night,139,1233,44440,319.71
+Fastfood,Midnight,145,1135,36680,252.97

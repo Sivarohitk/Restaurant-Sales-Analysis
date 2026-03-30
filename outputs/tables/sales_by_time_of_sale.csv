@@ -1,0 +1,6 @@
+time_of_sale,orders,quantity_sold,revenue,average_order_value,revenue_share_pct
+Morning,190,1574,53730,282.79,19.52
+Afternoon,205,1714,56345,274.85,20.47
+Evening,201,1540,52355,260.47,19.02
+Night,205,1759,62075,302.8,22.55
+Midnight,199,1575,50725,254.9,18.43

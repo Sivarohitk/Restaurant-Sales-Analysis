@@ -1,0 +1,7 @@
+metric,value
+total_revenue,275230.0
+total_orders,1000.0
+total_quantity_sold,8162.0
+average_order_value,275.23
+average_quantity_per_order,8.16
+missing_payment_share_pct,10.7
