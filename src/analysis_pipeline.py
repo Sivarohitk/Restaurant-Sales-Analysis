@@ -17,6 +17,31 @@ PAYMENT_TYPE_ORDER = ["Cash", "Online", "Unknown"]
 PRIMARY_COLOR = "#0b6e4f"
 SECONDARY_COLOR = "#c75c00"
 ACCENT_COLOR = "#4c7cbf"
+REQUIRED_SOURCE_COLUMNS = [
+    "order_id",
+    "date",
+    "item_name",
+    "item_type",
+    "item_price",
+    "quantity",
+    "transaction_amount",
+    "transaction_type",
+    "received_by",
+    "time_of_sale",
+]
+REQUIRED_SUMMARY_TABLES = [
+    "kpi_summary",
+    "monthly_sales_trend",
+    "top_items_by_revenue",
+    "top_items_by_quantity",
+    "sales_by_time_of_sale",
+    "sales_by_payment_type",
+    "data_quality_summary",
+]
+
+
+class PipelineValidationError(ValueError):
+    """Readable validation error for data quality issues that should stop the pipeline."""
 
 
 @dataclass(frozen=True)
@@ -56,6 +81,44 @@ def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
     return cleaned
 
 
+def validate_source_data(raw_df: pd.DataFrame) -> None:
+    """Validate critical assumptions about the source dataset before cleaning."""
+
+    missing_columns = sorted(set(REQUIRED_SOURCE_COLUMNS) - set(raw_df.columns))
+    if missing_columns:
+        raise PipelineValidationError(
+            "The raw dataset is missing required columns: "
+            + ", ".join(missing_columns)
+            + "."
+        )
+
+    if raw_df.empty:
+        raise PipelineValidationError("The raw dataset is empty. No analysis can be generated.")
+
+    if raw_df["order_id"].isna().any():
+        raise PipelineValidationError("The raw dataset contains missing order_id values.")
+
+    duplicate_orders = int(raw_df["order_id"].duplicated().sum())
+    if duplicate_orders:
+        raise PipelineValidationError(
+            f"Found {duplicate_orders} duplicate order_id values. "
+            "This project assumes one row per order."
+        )
+
+    numeric_checks = {
+        "item_price": (raw_df["item_price"] <= 0).sum(),
+        "quantity": (raw_df["quantity"] <= 0).sum(),
+        "transaction_amount": (raw_df["transaction_amount"] < 0).sum(),
+    }
+    invalid_numeric = [name for name, count in numeric_checks.items() if count]
+    if invalid_numeric:
+        raise PipelineValidationError(
+            "The raw dataset contains invalid numeric values in: "
+            + ", ".join(invalid_numeric)
+            + "."
+        )
+
+
 def parse_mixed_dates(date_series: pd.Series) -> tuple[pd.Series, pd.Series]:
     """Parse the two known source date formats safely."""
 
@@ -82,7 +145,12 @@ def parse_mixed_dates(date_series: pd.Series) -> tuple[pd.Series, pd.Series]:
 def load_raw_data(csv_path: Path) -> pd.DataFrame:
     """Load the raw CSV and standardize its headers."""
 
-    return clean_column_names(pd.read_csv(csv_path))
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Source file not found: {csv_path}")
+
+    raw_df = clean_column_names(pd.read_csv(csv_path))
+    validate_source_data(raw_df)
+    return raw_df
 
 
 def prepare_clean_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
@@ -154,6 +222,30 @@ def prepare_clean_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     return cleaned[ordered_columns]
 
 
+def validate_clean_dataset(cleaned_df: pd.DataFrame) -> None:
+    """Validate the cleaned dataset before exporting downstream outputs."""
+
+    if cleaned_df["order_date"].isna().all():
+        raise PipelineValidationError(
+            "Date parsing failed for every row. Check the date format logic and source file."
+        )
+
+    mismatched_amounts = int((~cleaned_df["transaction_amount_matches_expected"]).sum())
+    if mismatched_amounts:
+        raise PipelineValidationError(
+            f"Found {mismatched_amounts} rows where transaction_amount does not equal "
+            "item_price multiplied by quantity."
+        )
+
+    unknown_time_of_sale = sorted(
+        set(cleaned_df["time_of_sale"].dropna().unique()) - set(TIME_OF_SALE_ORDER)
+    )
+    if unknown_time_of_sale:
+        raise PipelineValidationError(
+            "Unexpected time_of_sale values found: " + ", ".join(unknown_time_of_sale) + "."
+        )
+
+
 def build_data_quality_summary(cleaned_df: pd.DataFrame) -> pd.DataFrame:
     """Create a concise, auditable summary of data quality checks."""
 
@@ -163,46 +255,50 @@ def build_data_quality_summary(cleaned_df: pd.DataFrame) -> pd.DataFrame:
 
     records = [
         {
-            "issue_type": "mixed_date_formats",
+            "issue": "Mixed date formats",
             "affected_rows": len(cleaned_df),
             "status": "reviewed",
-            "detail": (
+            "business_note": (
                 f"{dash_rows} rows used dd-mm-yyyy and {slash_rows} rows used mm/dd/yyyy; "
                 "the pipeline parses both formats explicitly."
             ),
         },
         {
-            "issue_type": "missing_transaction_type",
+            "issue": "Missing payment type",
             "affected_rows": int(cleaned_df["missing_transaction_type_flag"].sum()),
             "status": "handled",
-            "detail": "Missing payment values are retained as Unknown and flagged for transparency.",
+            "business_note": (
+                "Missing payment values are retained as Unknown and flagged for transparency."
+            ),
         },
         {
-            "issue_type": "transaction_amount_validation",
+            "issue": "Transaction amount validation",
             "affected_rows": int((~cleaned_df["transaction_amount_matches_expected"]).sum()),
             "status": "validated",
-            "detail": "Validated whether transaction_amount equals item_price multiplied by quantity.",
+            "business_note": (
+                "Validated whether transaction_amount equals item_price multiplied by quantity."
+            ),
         },
         {
-            "issue_type": "duplicate_order_id_check",
+            "issue": "Duplicate order ID check",
             "affected_rows": int(cleaned_df["duplicate_order_id_flag"].sum()),
             "status": "validated",
-            "detail": "Checked whether order_id values repeat across the source file.",
+            "business_note": "Checked whether order_id values repeat across the source file.",
         },
         {
-            "issue_type": "received_by_field_limitation",
+            "issue": "received_by field limitation",
             "affected_rows": int(cleaned_df["received_by_is_ambiguous_flag"].sum()),
             "status": "documented",
-            "detail": (
+            "business_note": (
                 "received_by contains only honorific labels "
                 f"{ambiguous_received_by}; it is treated as a category label, not a true employee identifier."
             ),
         },
         {
-            "issue_type": "unparsed_dates",
+            "issue": "Unparsed dates",
             "affected_rows": int(cleaned_df["parsed_date_missing_flag"].sum()),
             "status": "validated",
-            "detail": "Any rows listed here could not be parsed into a valid calendar date.",
+            "business_note": "Any rows listed here could not be parsed into a valid calendar date.",
         },
     ]
 
@@ -218,20 +314,31 @@ def build_summary_tables(cleaned_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
     kpi_summary = pd.DataFrame(
         [
-            {"metric": "total_revenue", "value": round(total_revenue, 2)},
-            {"metric": "total_orders", "value": total_orders},
-            {"metric": "total_quantity_sold", "value": total_quantity},
             {
-                "metric": "average_order_value",
-                "value": round(cleaned_df.groupby("order_id")["transaction_amount"].sum().mean(), 2),
+                "metric": "Total Revenue",
+                "result": f"${total_revenue:,.0f}",
             },
             {
-                "metric": "average_quantity_per_order",
-                "value": round(cleaned_df.groupby("order_id")["quantity"].sum().mean(), 2),
+                "metric": "Total Orders",
+                "result": f"{total_orders:,}",
             },
             {
-                "metric": "missing_payment_share_pct",
-                "value": round(cleaned_df["missing_transaction_type_flag"].mean() * 100, 2),
+                "metric": "Total Quantity Sold",
+                "result": f"{total_quantity:,}",
+            },
+            {
+                "metric": "Average Order Value",
+                "result": (
+                    f"${cleaned_df.groupby('order_id')['transaction_amount'].sum().mean():,.2f}"
+                ),
+            },
+            {
+                "metric": "Average Quantity per Order",
+                "result": f"{cleaned_df.groupby('order_id')['quantity'].sum().mean():,.2f}",
+            },
+            {
+                "metric": "Missing Payment Share",
+                "result": f"{cleaned_df['missing_transaction_type_flag'].mean() * 100:,.1f}%",
             },
         ]
     )
@@ -245,13 +352,14 @@ def build_summary_tables(cleaned_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         )
         .reset_index()
         .sort_values("order_month")
+        .rename(columns={"order_month": "month"})
     )
     monthly_sales["average_order_value"] = (
         monthly_sales["revenue"] / monthly_sales["orders"]
     ).round(2)
 
-    revenue_by_item = (
-        cleaned_df.groupby("item_name")
+    top_items_by_revenue = (
+        cleaned_df.groupby(["item_name", "item_type"])
         .agg(
             orders=("order_id", "count"),
             quantity_sold=("quantity", "sum"),
@@ -260,18 +368,22 @@ def build_summary_tables(cleaned_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         .reset_index()
         .sort_values("revenue", ascending=False)
     )
-    revenue_by_item["revenue_share_pct"] = (
-        revenue_by_item["revenue"] / total_revenue * 100
+    top_items_by_revenue.insert(0, "rank", range(1, len(top_items_by_revenue) + 1))
+    top_items_by_revenue["revenue_share_pct"] = (
+        top_items_by_revenue["revenue"] / total_revenue * 100
     ).round(2)
-    revenue_by_item["average_order_value"] = (
-        revenue_by_item["revenue"] / revenue_by_item["orders"]
+    top_items_by_revenue["average_order_value"] = (
+        top_items_by_revenue["revenue"] / top_items_by_revenue["orders"]
     ).round(2)
 
-    quantity_by_item = revenue_by_item.sort_values("quantity_sold", ascending=False).reset_index(
-        drop=True
+    top_items_by_quantity = (
+        top_items_by_revenue.drop(columns=["rank"])
+        .sort_values("quantity_sold", ascending=False)
+        .reset_index(drop=True)
     )
-    quantity_by_item["quantity_share_pct"] = (
-        quantity_by_item["quantity_sold"] / total_quantity * 100
+    top_items_by_quantity.insert(0, "rank", range(1, len(top_items_by_quantity) + 1))
+    top_items_by_quantity["quantity_share_pct"] = (
+        top_items_by_quantity["quantity_sold"] / total_quantity * 100
     ).round(2)
 
     sales_by_time_of_sale = (
@@ -350,13 +462,33 @@ def build_summary_tables(cleaned_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     return {
         "kpi_summary": kpi_summary,
         "monthly_sales_trend": monthly_sales,
-        "revenue_by_item": revenue_by_item,
-        "quantity_by_item": quantity_by_item,
+        "top_items_by_revenue": top_items_by_revenue,
+        "top_items_by_quantity": top_items_by_quantity,
         "sales_by_time_of_sale": sales_by_time_of_sale,
         "sales_by_payment_type": sales_by_payment_type,
         "item_type_mix": item_type_mix,
         "item_type_time_of_sale_performance": item_type_time_of_sale,
     }
+
+
+def validate_summary_tables(summary_tables: dict[str, pd.DataFrame]) -> None:
+    """Validate that required exported summary tables exist and contain data."""
+
+    missing_tables = sorted(set(REQUIRED_SUMMARY_TABLES) - set(summary_tables))
+    if missing_tables:
+        raise PipelineValidationError(
+            "The pipeline did not generate required summary tables: "
+            + ", ".join(missing_tables)
+            + "."
+        )
+
+    empty_tables = [
+        table_name for table_name, table_df in summary_tables.items() if table_df.empty
+    ]
+    if empty_tables:
+        raise PipelineValidationError(
+            "The following summary tables were empty: " + ", ".join(sorted(empty_tables)) + "."
+        )
 
 
 def export_tables(summary_tables: dict[str, pd.DataFrame], destination: Path) -> None:
@@ -365,6 +497,18 @@ def export_tables(summary_tables: dict[str, pd.DataFrame], destination: Path) ->
     destination.mkdir(parents=True, exist_ok=True)
     for table_name, table_df in summary_tables.items():
         table_df.to_csv(destination / f"{table_name}.csv", index=False)
+
+
+def clear_generated_outputs(paths: ProjectPaths) -> None:
+    """Remove previously generated chart and table files before regenerating outputs."""
+
+    for pattern in ("*.csv",):
+        for file_path in paths.outputs_tables.glob(pattern):
+            file_path.unlink(missing_ok=True)
+
+    for pattern in ("*.png",):
+        for file_path in paths.outputs_charts.glob(pattern):
+            file_path.unlink(missing_ok=True)
 
 
 def _save_bar_chart(
@@ -404,7 +548,7 @@ def create_charts(summary_tables: dict[str, pd.DataFrame], destination: Path) ->
 
     monthly = summary_tables["monthly_sales_trend"]
     fig, ax = plt.subplots(figsize=(11, 6))
-    ax.plot(monthly["order_month"], monthly["revenue"], marker="o", linewidth=2.5, color=PRIMARY_COLOR)
+    ax.plot(monthly["month"], monthly["revenue"], marker="o", linewidth=2.5, color=PRIMARY_COLOR)
     ax.set_title("Monthly Revenue Trend", fontsize=14, weight="bold")
     ax.set_xlabel("Month")
     ax.set_ylabel("Revenue")
@@ -416,23 +560,23 @@ def create_charts(summary_tables: dict[str, pd.DataFrame], destination: Path) ->
     plt.close(fig)
 
     _save_bar_chart(
-        data=summary_tables["revenue_by_item"],
+        data=summary_tables["top_items_by_revenue"],
         label_column="item_name",
         value_column="revenue",
-        title="Revenue by Item",
+        title="Top Items by Revenue",
         x_label="Revenue",
-        output_path=destination / "revenue_by_item.png",
+        output_path=destination / "top_items_by_revenue.png",
         color=PRIMARY_COLOR,
         horizontal=True,
     )
 
     _save_bar_chart(
-        data=summary_tables["quantity_by_item"],
+        data=summary_tables["top_items_by_quantity"],
         label_column="item_name",
         value_column="quantity_sold",
-        title="Quantity Sold by Item",
+        title="Top Items by Quantity Sold",
         x_label="Units Sold",
-        output_path=destination / "quantity_sold_by_item.png",
+        output_path=destination / "top_items_by_quantity.png",
         color=SECONDARY_COLOR,
         horizontal=True,
     )
@@ -498,15 +642,22 @@ def write_processed_outputs(cleaned_df: pd.DataFrame, quality_summary: pd.DataFr
 def main() -> None:
     """Run the end-to-end project pipeline."""
 
-    paths = get_project_paths()
-    raw_df = load_raw_data(paths.raw_data)
-    cleaned_df = prepare_clean_dataset(raw_df)
-    quality_summary = build_data_quality_summary(cleaned_df)
-    summary_tables = build_summary_tables(cleaned_df)
+    try:
+        paths = get_project_paths()
+        raw_df = load_raw_data(paths.raw_data)
+        cleaned_df = prepare_clean_dataset(raw_df)
+        validate_clean_dataset(cleaned_df)
+        quality_summary = build_data_quality_summary(cleaned_df)
+        summary_tables = build_summary_tables(cleaned_df)
+        summary_tables["data_quality_summary"] = quality_summary.copy()
+        validate_summary_tables(summary_tables)
 
-    write_processed_outputs(cleaned_df, quality_summary, paths)
-    export_tables(summary_tables, paths.outputs_tables)
-    create_charts(summary_tables, paths.outputs_charts)
+        write_processed_outputs(cleaned_df, quality_summary, paths)
+        clear_generated_outputs(paths)
+        export_tables(summary_tables, paths.outputs_tables)
+        create_charts(summary_tables, paths.outputs_charts)
+    except (FileNotFoundError, PipelineValidationError) as exc:
+        raise SystemExit(f"Pipeline failed: {exc}") from exc
 
     print(f"Processed {len(cleaned_df):,} rows from {paths.raw_data.name}.")
     print(f"Clean dataset written to: {paths.processed_dir}")

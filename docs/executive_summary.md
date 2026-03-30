@@ -1,13 +1,13 @@
-# Executive Summary
+# Restaurant Sales Intelligence Executive Summary
 
 ## Key Findings
 
 1. The source data captures **1,000 restaurant transactions** from **January 4, 2022 to December 3, 2023**, totaling **$275,230** in revenue and **8,162 units sold**.
 2. Average order value is **$275.23**, and average units per order are **8.16**, indicating that customers typically purchase multiple units per transaction.
-3. **Sandwich** is the largest revenue contributor at **$65,820**, while **Cold coffee** is the highest-volume item at **1,361 units sold**.
-4. The top three revenue drivers, **Sandwich, Frankie, and Cold coffee**, account for **64.59%** of total revenue, showing a concentrated sales mix.
-5. **Night** is the strongest sales period with **$62,075** in revenue and the highest average order value at **$302.80**.
-6. **Fastfood** contributes **68.61%** of total revenue and **67.67%** of unit volume, making it the dominant category relative to beverages.
+3. **Sandwich** is the largest revenue contributor at **$65,820**, while **Cold coffee** is the highest-volume item at **1,361 units sold**, making those products important menu anchors.
+4. The top three revenue drivers, **Sandwich, Frankie, and Cold coffee**, account for **64.59%** of total revenue, so menu visibility and availability for those items matter disproportionately.
+5. **Night** is the strongest sales period with **$62,075** in revenue and the highest average order value at **$302.80**, supporting stronger staffing and prep coverage later in the day.
+6. **Fastfood** contributes **68.61%** of total revenue and **67.67%** of unit volume, while beverages provide complementary upsell potential rather than leading the business mix.
 7. Payment reporting has a material quality gap: **107 transactions (10.7%)** have missing `transaction_type` values.
 8. Revenue trends are fairly stable through most of 2022 and early 2023, but late-2023 activity is sparse in the source data, so the apparent decline should be treated as incomplete coverage rather than confirmed performance drop-off.
 

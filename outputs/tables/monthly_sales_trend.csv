@@ -1,4 +1,4 @@
-order_month,orders,quantity_sold,revenue,average_order_value
+month,orders,quantity_sold,revenue,average_order_value
 2022-01,21,165,5785,275.48
 2022-02,27,206,8010,296.67
 2022-03,23,161,4720,205.22

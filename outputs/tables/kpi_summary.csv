@@ -1,7 +1,7 @@
-metric,value
-total_revenue,275230.0
-total_orders,1000.0
-total_quantity_sold,8162.0
-average_order_value,275.23
-average_quantity_per_order,8.16
-missing_payment_share_pct,10.7
+metric,result
+Total Revenue,"$275,230"
+Total Orders,"1,000"
+Total Quantity Sold,"8,162"
+Average Order Value,$275.23
+Average Quantity per Order,8.16
+Missing Payment Share,10.7%
